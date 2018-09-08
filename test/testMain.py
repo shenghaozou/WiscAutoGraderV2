@@ -1,10 +1,10 @@
 # UW-Madison CS301 Test Script
 import argparse
-import boto3
+# import boto3
 from io import StringIO
 import json
 import os
-import resource
+# import resource
 import subprocess
 import sys
 
@@ -41,21 +41,29 @@ if __name__ == "__main__":
     errorLog = {}
     try:
         subprocess.check_output(
-            ["python3", "-m", "unittest", "testCore"],
+            ["python3", "testCore.py"],
+            # don't generate pycache. It caused permission error when running
+            # in docker environment.
+            env={"ENABLE_LOG": "1", "PYTHONDONTWRITEBYTECODE": "1"},
             universal_newlines=True,
-            stdin=open("default.txt", "r"), # default.txt is an empty file
+            stdin=open("io/default.txt", "r"), # default.txt is an empty file
             stderr=subprocess.STDOUT,
             timeout=3) # timeout: 3s
     except subprocess.CalledProcessError as err:
-        errorLog = {'errorCode': err.returncode,
-                    'output': err.output}
+        # unittest failed will also exit with code 1
+        if not os.path.exists("result.json"):
+            errorLog = {'errorCode': err.returncode,
+                        'output': err.output}
     except subprocess.TimeoutExpired as err:
         errorLog = {'errorCode': 504} # Use 504 here for timeout
     except Exception as e:
         errorLog = {'errorCode': 503,
                     'output': str(e)}
     # check the existence of result.json
-    if not os.path.exists("result.json"):
+    if not errorLog and not os.path.exists("result.json"):
         errorLog = {'errorCode': 404}
-
-    uploadResult(args.project, args.id, errorLog)
+    if errorLog:
+        with open("result.json", "w") as fw:
+            json.dump({"error": errorLog}, fw)
+    # Currently, we don't update the script
+    # uploadResult(args.project, args.id, errorLog)

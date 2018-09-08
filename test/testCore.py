@@ -8,9 +8,9 @@ import os
 import json
 
 # May add try/except in the future
-from demo import gcd2
+from demo import gcd
 
-OK = 'ok'
+OK = 'pass'
 FAIL = 'fail'
 ERROR = 'error'
 SKIP = 'skip'
@@ -61,7 +61,9 @@ class JsonTestResult(unittest.TextTestResult):
 
         return json_out
 
-class P0Test(unittest.TestCase):
+# Please don't change the test class name,
+# Please only use one unittest class at least for now
+class CS301Test(unittest.TestCase):
     def testFunction1(self):
         self.assertEqual(gcd(12, 4), 4)
     def testFunction2(self):
@@ -70,8 +72,17 @@ class P0Test(unittest.TestCase):
         with self.assertRaises(TypeError):
             gcd("a", True)
 
+def calcGrade(jsonResult):
+    grade = 0
+    passedTest = jsonResult["CS301Test"][OK]
+    if "testFunction1" and "testFunction2" in passedTest:
+        grade += 2
+    if "testFunction3" in passedTest:
+        grade += 1
+    return grade
+
 if __name__ == "__main__":
-    suite = unittest.TestLoader().loadTestsFromTestCase(P0Test)
+    suite = unittest.TestLoader().loadTestsFromTestCase(CS301Test)
     capturedOut = StringIO()
     runner = unittest.TextTestRunner(stream=capturedOut)
     runner.resultclass = JsonTestResult
@@ -80,6 +91,9 @@ if __name__ == "__main__":
     if not os.environ.get('DISABLE_DISPLAY'):
         print(capturedOut.getvalue())
     jsonOutput['result'] = capturedOut.getvalue()
-    if os.environ.get('ENABLE_LOG'):
+    jsonOutput['grade'] = calcGrade(jsonOutput)
+    if os.environ.get("ENABLE_LOG"):
         with open("result.json","w") as fw:
             json.dump(jsonOutput, fw)
+    else:
+        print("\nYour grade:{}".format(jsonOutput['grade']))

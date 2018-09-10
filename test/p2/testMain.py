@@ -42,4 +42,4 @@ if __name__ == "__main__":
         errorLog = {'errorCode': "Error: result.json not found"}
     if errorLog:
         with open("result.json", "w") as fw:
-            json.dump({"error": errorLog}, fw)
+            json.dump(errorLog, fw)

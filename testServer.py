@@ -41,16 +41,13 @@ def downloadSubmission(projectPath):
         f.write(json.dumps(submission, indent=2))
 
 def uploadResult(project, studentID):
-    if not os.path.exists("{}/result.json".format(TEST_DIR)):
-        return False
-    with open("result.json", "r") as fr:
+    with open("{}/result.json".format(TEST_DIR), "r") as fr:
         serializedResult = fr.read()
     s3.put_object(
         Bucket=BUCKET,
-        Key='ta/grading/{}/{}.txt'.format(project, studentID),
+        Key='ta/grading/{}/{}.json'.format(project, studentID),
         Body=serializedResult.encode('utf-8'),
         ContentType='text/plain')
-    return True
 
 def lookupGoogleId(netId):
     path = 'users/net_id_to_google/%s.txt' % netId
@@ -100,9 +97,6 @@ def sendToDocker(project, netId):
            '-i', netId]                      # command to run inside
     logging.info("docker cmd:" + ' '.join(cmd))
     output = subprocess.check_output(cmd)
-    with open(TEST_DIR + '/result.json') as fr:
-        result = fr.read()
-    return result
 
 @app.route('/')
 def index():
@@ -110,12 +104,11 @@ def index():
 
 @app.route('/json/<project>/<netId>')
 def gradingJson(project, netId):
-    fetchFromS3(project, netId)
-    sendToDocker(project, netId)
-    return ""
     try:
         fetchFromS3(project, netId)
         sendToDocker(project, netId)
+        uploadResult(project, netId)
         return json.dumps({})
     except Exception as e:
+        logging.warning("Unexpected Error: " + str(e))
         return json.dumps({"error": str(e)})

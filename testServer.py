@@ -97,7 +97,7 @@ def dockerTimer(dockerId, project, netId):
     time.sleep(3)
     exitCode, isRunning = containerStatus(dockerId)
     if isRunning:
-        subprocess.run(' '.join(forceKillCmd))
+        subprocess.run(forceKillCmd)
         uploadResult(project, netId, {"error":"Timeout"})
         logging.info("project: {}, netid: {}, timeout".format(project, netId))
     elif exitCode:
@@ -148,10 +148,6 @@ def index():
 
 @app.route('/json/<project>/<netId>')
 def gradingJson(project, netId):
-    logging.info("Request project: {}, netId: {}".format(project, netId))
-    fetchFromS3(project, netId)
-    sendToDocker(project, netId)
-    return "{}"
     try:
         fetchFromS3(project, netId)
         sendToDocker(project, netId)

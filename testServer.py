@@ -1,4 +1,4 @@
-import base64, boto3, botocore, logging, os, sys, json, subprocess, shutil
+import base64, boto3, botocore, logging, os, sys, json, subprocess, shutil, threading, time
 from flask import Flask
 
 ACCESS_PATH = "projects/{project}/users/{googleId}/curr.json"
@@ -17,7 +17,16 @@ logging.basicConfig(
         logging.FileHandler("testServer.log"),
         logging.StreamHandler()
     ],
-    level=logging.WARNING)
+    level=logging.INFO)
+
+class timerThread(threading.Thread):
+    def __init__(self, dockerId, project, netId):
+        threading.Thread.__init__(self)
+        self.dockerId = dockerId
+        self.project = project
+        self.netId = netId
+    def run(self):
+        dockerTimer(self.dockerId, self.project, self.netId)
 
 def downloadSubmission(projectPath):
     # a project path will look something like this:
@@ -40,9 +49,12 @@ def downloadSubmission(projectPath):
     with open(os.path.join(CODE_DIR, 'meta.json'), 'w') as f:
         f.write(json.dumps(submission, indent=2))
 
-def uploadResult(project, studentID):
-    with open("{}/result.json".format(TEST_DIR), "r") as fr:
-        serializedResult = fr.read()
+def uploadResult(project, studentID, errorLog = None):
+    if errorLog:
+        serializedResult = json.dumps(errorLog)
+    else:
+        with open("{}/result.json".format(TEST_DIR), "r") as fr:
+            serializedResult = fr.read()
     s3.put_object(
         Bucket=BUCKET,
         Key='ta/grading/{}/{}.json'.format(project, studentID),
@@ -69,6 +81,32 @@ def fetchFromS3(project, netId):
     curPath = ACCESS_PATH.format(project=project, googleId=googleId)
     downloadSubmission(curPath)
 
+def containerStatus(dockerId):
+    checkCmd = ["docker", "inspect", "-f", "{{.State.ExitCode}} {{.State.Running}}", dockerId]
+    output = subprocess.check_output(checkCmd).decode("ascii").replace("\n","")
+    response = output.split(' ')
+    str2bool = {"false" : False, "true" : True}
+    if len(response) == 2:
+        return int(response[0]), str2bool[response[1]]
+    else:
+        logging.warning("Unexpected response when checking the container {} running status. Response: {}".format(dockerId, output))
+        return None, None
+
+def dockerTimer(dockerId, project, netId):
+    forceKillCmd = ["docker", "rm", "-f", dockerId]
+    time.sleep(3)
+    exitCode, isRunning = containerStatus(dockerId)
+    if isRunning:
+        subprocess.run(' '.join(forceKillCmd))
+        uploadResult(project, netId, {"error":"Timeout"})
+        logging.info("project: {}, netid: {}, timeout".format(project, netId))
+    elif exitCode:
+        uploadResult(project, netId, {"error":"ExitCode:" + str(exitCode)})
+        logging.info("project: {}, netid: {}, exit with {}".format(project, netId, exitCode))
+    else:
+        uploadResult(project, netId)
+        logging.info("project: {}, netid: {}, docker exit normally".format(project, netId))
+
 def sendToDocker(project, netId):
     # create directory to mount inside a docker container
     if os.path.exists(TEST_DIR):
@@ -89,14 +127,20 @@ def sendToDocker(project, netId):
     image = 'python:3.7-stretch' # TODO: find/build some anaconda image
 
     cmd = ['docker', 'run',                           # start a container
+           '-d',                                      # detach mode
            '-v', os.path.abspath(TEST_DIR)+':/code',  # share the test dir inside
            '-w', '/code',                             # working dir is w/ code
            image,                                     # what docker image?
-           'python3', 'testMain.py',
+           'python3', 'test.py',
            '-p', project,
            '-i', netId]                      # command to run inside
     logging.info("docker cmd:" + ' '.join(cmd))
-    output = subprocess.check_output(cmd)
+    dockerId = subprocess.check_output(cmd).decode("ascii").replace("\n","")
+    logging.info("docker id:" + dockerId)
+    waitDockerCmd = ['docker', 'wait', dockerId]
+    timer = timerThread(dockerId, project, netId)
+    timer.start()
+    subprocess.check_output(waitDockerCmd)
 
 @app.route('/')
 def index():
@@ -104,11 +148,13 @@ def index():
 
 @app.route('/json/<project>/<netId>')
 def gradingJson(project, netId):
+    logging.info("Request project: {}, netId: {}".format(project, netId))
+    fetchFromS3(project, netId)
+    sendToDocker(project, netId)
+    return "{}"
     try:
         fetchFromS3(project, netId)
         sendToDocker(project, netId)
-        uploadResult(project, netId)
-        return json.dumps({})
     except Exception as e:
         logging.warning("Unexpected Error: " + str(e))
-        return json.dumps({"error": str(e)})
+    return "{}"
